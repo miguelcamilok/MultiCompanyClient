@@ -10,7 +10,28 @@
                 </div>
 
                 <div class="header-actions">
-                    <button class="login-btn" @click="onLogin">👤 Log in</button>
+                    <!-- Si no está logueado -->
+                    <!-- Si no está logueado -->
+                    <button v-if="!isLoggedIn" @click="goLogin" class="login-btn" type="button">
+                        Iniciar Sesión
+                    </button>
+
+
+                    <!-- Si está logueado -->
+                    <div v-else class="user-menu" @click="toggleDropdown">
+                        <div class="user-info">
+                            Hola, {{ firstName }}
+                            <span class="user-arrow">▾</span>
+                        </div>
+
+                        <div v-if="dropdownOpen" class="dropdown">
+                            <ul>
+                                <li @click="goProfile">Perfil</li>
+                                <li @click="logout">Cerrar Sesión</li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <button class="cart-btn">
                         🛒
                         <span class="cart-count">{{ cartCount }}</span>
@@ -24,21 +45,23 @@
         <div class="container">
             <ul class="nav-list">
                 <li v-for="(item, index) in navLinks" :key="index" class="nav-item">
-                    <router-link 
-                        :to="item.href" 
-                        class="nav-link" 
-                        :class="{ active: isActiveRoute(item.href) }">
+                    <router-link :to="item.href" class="nav-link" :class="{ active: isActiveRoute(item.href) }">
                         {{ item.label }}
                     </router-link>
                 </li>
             </ul>
         </div>
     </nav>
+    <div v-if="showLoading" class="overlay">
+        <div class="spinner"></div>
+    </div>
+
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { defineComponent, ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth' // tu Pinia/Vuex store
 
 export default defineComponent({
     name: 'HeaderNav',
@@ -69,56 +92,132 @@ export default defineComponent({
         }
     },
     setup(props, { emit }) {
-        const searchQuery = ref('');
-        const route = useRoute();
+        const searchQuery = ref('')
+        const route = useRoute()
+        const router = useRouter()
+        const auth = useAuthStore()
+
+        const dropdownOpen = ref(false)
+        const showLoading = ref(false)
+
+        const isLoggedIn = computed(() => !!auth.user)
+        const firstName = computed(() => auth.user?.name?.split(' ')[0] || '')
 
         const onSearch = () => {
-            emit('search', searchQuery.value);
-        };
+            emit('search', searchQuery.value)
+        }
 
-        const onLogin = () => {
-            emit('login');
-        };
+        const goLogin = () => {
+            showLoading.value = true
+            setTimeout(() => {
+                window.location.href = '/login'
+            }, 200) // le damos 200ms para que alcance a mostrar el loader
+        }
+
+
+        const toggleDropdown = () => {
+            dropdownOpen.value = !dropdownOpen.value
+        }
+
+        const goProfile = () => {
+            router.push({ name: 'profile' })
+        }
+
+        const logout = () => {
+            auth.logout()
+            router.push({ name: 'home' })
+        }
 
         const isActiveRoute = (href: string) => {
-            return route.path === href;
-        };
-
+            return route.path === href
+        }
         return {
             searchQuery,
             onSearch,
-            onLogin,
-            isActiveRoute
-        };
+            goLogin,
+            isActiveRoute,
+            isLoggedIn,
+            firstName,
+            dropdownOpen,
+            toggleDropdown,
+            goProfile,
+            logout,
+            showLoading
+        }
     }
-});
+})
+
 </script>
 
 <style scoped>
-@import "../assets/css/styles.css";
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
 
-.nav-link {
+.spinner {
+    border: 4px solid #eee;
+    border-top: 4px solid #7c3aed;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Dropdown */
+.user-menu {
     position: relative;
-    padding-bottom: 5px;
-    text-decoration: none;
+    cursor: pointer;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    font-weight: 500;
     color: #333;
-    transition: color 0.3s;
 }
 
-.nav-link:hover {
-    color: #000;
+.user-arrow {
+    margin-left: 5px;
+    font-size: 12px;
 }
 
-/* Línea inferior para activo */
-.nav-link.active::after {
-    content: '';
+.dropdown {
     position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    height: 3px; /* grosor de la línea */
-    background: linear-gradient(135deg, #7c3aed, #a855f7); /* color de la línea */
-    border-radius: 2px;
+    right: 0;
+    top: 120%;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    min-width: 150px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+    z-index: 100;
 }
 
+.dropdown ul {
+    list-style: none;
+    padding: 8px 0;
+    margin: 0;
+}
+
+.dropdown li {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.dropdown li:hover {
+    background: #f5f5f5;
+}
 </style>

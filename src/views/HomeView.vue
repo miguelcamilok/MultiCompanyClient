@@ -147,6 +147,17 @@ export default defineComponent({
     const bestSellers = ref<any[]>([]);
 
     onMounted(async () => {
+      // Buscar todas las hojas de estilo que provienen del login
+      const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+        .filter(link => link.href.includes('login.css'))  // Filtra solo tu CSS de login
+
+      // Removerlas del DOM
+      links.forEach(link => link.remove())
+
+      // Si hay <style> inline inyectado por login, también se puede limpiar
+      const styles = Array.from(document.querySelectorAll<HTMLStyleElement>('style'))
+        .filter(style => style.innerText.includes('.login-header'))  // o cualquier selector del login
+      styles.forEach(style => style.remove())
       try {
         const { data } = await api.get('products/best-sellers');
         // Ajustamos datos si hace falta (por ejemplo, iconos, badges)
