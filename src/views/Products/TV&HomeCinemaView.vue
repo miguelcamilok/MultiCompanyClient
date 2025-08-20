@@ -1,0 +1,188 @@
+<template>
+  <div class="tv-home-page">
+    <HeaderNav />
+    <Breadcrumbs :crumbs="breadcrumbs" />
+
+    <!-- Active Filters -->
+    <div v-if="hasActiveFilters" class="active-filters">
+      <div class="container">
+        <h4 class="active-filters-title">Filtros activos:</h4>
+        <div class="active-filters-list">
+          <div v-for="(value, key) in filters" v-if="value" :key="key" class="filter-tag">
+            <span>{{ value }}</span>
+            <button @click="clearFilter(key)" class="filter-remove">×</button>
+          </div>
+          <button v-if="hasActiveFilters" @click="clearAllFilters" class="clear-all-filters">
+            Limpiar todos los filtros
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-wrapper">
+      <!-- Filtros sidebar -->
+      <FiltersSidebar
+        :filterGroups="filterGroups"
+        v-model="filters"
+        @update="applyFilters"
+      />
+
+      <!-- Productos -->
+      <section class="products-section">
+        <div class="products-header">
+          <h2 class="products-title">{{ products.length }} productos encontrados</h2>
+          <div class="sort-controls">
+            <label for="sort-select" class="sort-label">Ordenar por:</label>
+            <select id="sort-select" v-model="sortOrder" @change="applyFilters" class="sort-select">
+              <option value="relevant">Más relevantes</option>
+              <option value="price_asc">Precio: bajo a alto</option>
+              <option value="price_desc">Precio: alto a bajo</option>
+              <option value="newest">Nuevo primero</option>
+              <option value="rating">Mejor calificados</option>
+            </select>
+          </div>
+        </div>
+
+        <ProductGrid
+          :products="products"
+          :formatPrice="formatPrice"
+          @select="goToProduct"
+          @img-error="onImgError"
+        />
+
+        <div v-if="isLoading" class="loading-indicator" style="text-align: center; padding: 20px;">
+          Cargando productos...
+        </div>
+
+        <div v-if="products.length === 0 && !isLoading" class="no-products" style="text-align: center; padding: 40px;">
+          <h3>No se encontraron productos</h3>
+          <p>Intenta ajustar tus filtros de búsqueda</p>
+        </div>
+
+        <div id="scroll-anchor"></div>
+      </section>
+    </div>
+
+    <FooterComponent />
+  </div>
+</template>
+
+<script lang="ts">
+import { defineComponent, ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import HeaderNav from '../../components/NavBarComponent.vue';
+import FooterComponent from '../../components/FooterComponent.vue';
+import Breadcrumbs from '../../components/Breadcrumbs.vue';
+import FiltersSidebar from '../../components/FiltersSidebar.vue';
+import ProductGrid from '../../components/ProductGrid.vue';
+import api from '../../services/api';
+
+const DEFAULT_PROPERTY_IMAGE = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZjlmYSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE4IiBmaWxsPSIjNmM3NTdkIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+SW1hZ2VuIG5vIGRpc3BvbmlibGU8L3RleHQ+PC9zdmc+";
+
+export default defineComponent({
+  name: 'TVHomeView',
+  components: { HeaderNav, FooterComponent, Breadcrumbs, FiltersSidebar, ProductGrid },
+  setup() {
+    const router = useRouter();
+    const products = ref<any[]>([]);
+    const sortOrder = ref('relevant');
+    const nextPage = ref(1);
+    const isLoading = ref(false);
+
+    // Categorías válidas TV & Home Cinema
+    const validCategories = [
+      'Televisores', 'Home Cinema', 'Proyectores', 'Barras de Sonido', 'Accesorios de TV'
+    ];
+
+    const filters = ref({ category: '', price: '', brand: '' });
+
+    const filterGroups = [
+      { title: 'Categorías', key: 'category', options: validCategories },
+      { title: 'Precio', key: 'price', options: ['Menos de $1.000.000', '$1.000.000 - $2.000.000', '$2.000.000 - $5.000.000', 'Más de $5.000.000'] },
+      { title: 'Marca', key: 'brand', options: ['Samsung', 'LG', 'Sony', 'Philips', 'Panasonic', 'Bose'] }
+    ];
+
+    const categoriesMap: Record<string, string> = {
+      'Televisores': 'tv',
+      'Home Cinema': 'home_cinema',
+      'Proyectores': 'projectors',
+      'Barras de Sonido': 'soundbars',
+      'Accesorios de TV': 'tv_accessories'
+    };
+
+    const breadcrumbs = computed(() => {
+      const crumbs = [
+        { text: 'Inicio', link: '/' },
+        { text: 'TV & Home Cinema', link: '/tv-home' }
+      ];
+      if (filters.value.category && validCategories.includes(filters.value.category)) {
+        crumbs.push({ text: filters.value.category });
+      }
+      return crumbs;
+    });
+
+    const hasActiveFilters = computed(() => Object.values(filters.value).some(v => v));
+    const formatPrice = (price: number | string) => {
+      const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+      return numPrice.toLocaleString('es-CO');
+    };
+
+    const fetchProducts = async () => {
+      if (isLoading.value) return;
+      isLoading.value = true;
+
+      try {
+        const params: any = { page: nextPage.value, sort: sortOrder.value };
+
+        if (filters.value.category && validCategories.includes(filters.value.category)) {
+          params.category = categoriesMap[filters.value.category];
+        } else {
+          // Todas las subcategorías TV & Home Cinema
+          params.category = validCategories.map(cat => categoriesMap[cat]).join(',');
+        }
+
+        if (filters.value.price) params.price = filters.value.price;
+        if (filters.value.brand) params.brand = filters.value.brand;
+
+        const response = await api.get('/products', { params });
+        if (nextPage.value === 1) products.value = response.data.data || [];
+        else products.value.push(...(response.data.data || []));
+        nextPage.value = response.data.next_page || null;
+      } catch (error) {
+        console.error('Error fetching products:', error);
+        products.value = [];
+      } finally {
+        isLoading.value = false;
+      }
+    };
+
+    const applyFilters = () => { nextPage.value = 1; fetchProducts(); };
+    const clearFilter = (key: string) => { filters.value[key as keyof typeof filters.value] = ''; applyFilters(); };
+    const clearAllFilters = () => { Object.keys(filters.value).forEach(k => filters.value[k as keyof typeof filters.value] = ''); applyFilters(); };
+    const onImgError = (event: Event) => { const img = event.target as HTMLImageElement; if (img.src !== DEFAULT_PROPERTY_IMAGE) { img.src = DEFAULT_PROPERTY_IMAGE; img.onerror = null; }};
+    const goToProduct = (product: any) => { sessionStorage.setItem('selectedProduct', JSON.stringify(product)); router.push(`/product/${product.id}`); };
+    const loadMore = async () => { if (!nextPage.value || isLoading.value) return; await fetchProducts(); };
+
+    onMounted(() => {
+      fetchProducts();
+      const observer = new IntersectionObserver(entries => { if (entries[0].isIntersecting) loadMore(); }, { rootMargin: '200px' });
+      const anchor = document.querySelector('#scroll-anchor'); if (anchor) observer.observe(anchor);
+    });
+
+    return { products, filters, filterGroups, sortOrder, hasActiveFilters, formatPrice, breadcrumbs, applyFilters, clearFilter, clearAllFilters, onImgError, goToProduct, isLoading };
+  }
+});
+</script>
+
+<style scoped>
+@import "../../assets/css/products.css";
+
+.loading-indicator {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.no-products {
+  color: #6c757d;
+}
+</style>
